@@ -1,0 +1,13 @@
+# Local agent state (not project instructions).
+.pi/
+
+# Python caches.
+__pycache__/
+*.py[cod]
+
+# Local environment and credentials.
+.env
+.env.*
+!.env.example
+
+# Project-specific build and media rules live in each project's .gitignore.

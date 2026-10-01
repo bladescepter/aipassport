@@ -1,0 +1,14 @@
+build/
+sdkconfig
+sdkconfig.old
+managed_components/
+assets/music/musicfs.img
+# Audio is local-only until redistribution rights are confirmed, including
+# encoded files. Keep directory placeholders, not copyrighted song payloads.
+assets/music/source/*
+!assets/music/source/.gitkeep
+assets/music/data/*
+!assets/music/data/.gitkeep
+
+__pycache__/
+*.pyc

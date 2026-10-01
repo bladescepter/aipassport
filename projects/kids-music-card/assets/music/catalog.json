@@ -1,0 +1,44 @@
+[
+  {
+    "id": "01",
+    "title": "歌唱祖国",
+    "path": "01.opus",
+    "duration_ms": 209040,
+    "order": 1
+  },
+  {
+    "id": "02",
+    "title": "没有共产党就没有新中国",
+    "path": "02.opus",
+    "duration_ms": 109000,
+    "order": 2
+  },
+  {
+    "id": "03",
+    "title": "粉红色的回忆",
+    "path": "03.opus",
+    "duration_ms": 229000,
+    "order": 3
+  },
+  {
+    "id": "04",
+    "title": "童年",
+    "path": "04.opus",
+    "duration_ms": 217480,
+    "order": 4
+  },
+  {
+    "id": "05",
+    "title": "陀飞轮",
+    "path": "05.opus",
+    "duration_ms": 278133,
+    "order": 5
+  },
+  {
+    "id": "06",
+    "title": "虫儿飞",
+    "path": "06.opus",
+    "duration_ms": 162890,
+    "order": 6
+  }
+]

@@ -1,0 +1,40 @@
+# AI Passport children's music player - ESP32-C3 / 8 MB Flash
+CONFIG_IDF_TARGET="esp32c3"
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+CONFIG_ESPTOOLPY_HEADER_FLASHSIZE_UPDATE=n
+
+# Custom app + SPIFFS music resource partition.
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
+
+# Native USB Serial/JTAG console. GPIO21 is the LCD backlight and must not be
+# reused as UART0 TX.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
+
+# LVGL: the application supplies its own 18 px CJK subset.
+CONFIG_LV_COLOR_DEPTH_16=y
+CONFIG_LV_DEF_REFR_PERIOD=20
+CONFIG_LV_MEM_SIZE_KILOBYTES=32
+# Keep LVGL's default font available for its base style; application labels
+# explicitly use music_font_18.
+CONFIG_LV_FONT_MONTSERRAT_14=y
+CONFIG_LV_TXT_ENC_UTF8=y
+CONFIG_LV_USE_FONT_PLACEHOLDER=y
+
+# Audio playback and Flash writes can run concurrently. Keep the I2S ISR path
+# in IRAM; the application still keeps all file/NVS work outside callbacks.
+CONFIG_I2S_ISR_IRAM_SAFE=y
+
+# Input timing: the BSP uses the shared GPIO0 ADC ladder. LONG is set to 2 s
+# in bsp_button.c, while these options control debounce and ADC averaging.
+CONFIG_BUTTON_DEBOUNCE_TICKS=4
+CONFIG_ADC_BUTTON_SAMPLE_TIMES=3
+CONFIG_FREERTOS_HZ=1000
+
+# No wireless feature is required by this offline application. Disabling Wi-Fi
+# also avoids linking ESP32-C3's large proprietary Wi-Fi blobs.
+CONFIG_BT_ENABLED=n
+CONFIG_ESP_WIFI_ENABLED=n
+CONFIG_APP_NO_BLOBS=y
