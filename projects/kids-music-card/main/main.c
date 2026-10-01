@@ -9,6 +9,11 @@
 #include "esp_log.h"
 #include "nvs_flash.h"
 #include "music_app.h"
+#include "sdkconfig.h"
+#if CONFIG_MUSIC_ONLINE_P0
+#include "music_http_source.h"
+#include "music_network.h"
+#endif
 
 static const char *TAG = "main";
 
@@ -48,6 +53,14 @@ void app_main(void)
         ESP_LOGW(TAG, "电量计不可用: %s", esp_err_to_name(battery_error));
     }
 
+#if CONFIG_MUSIC_ONLINE_P0
+    // Initialize bounded HTTP resources, but never wait for a network at boot.
+    const esp_err_t http_error = music_http_source_service_init();
+    if (http_error != ESP_OK) {
+        ESP_LOGW(TAG, "HTTP source service unavailable: %s", esp_err_to_name(http_error));
+    }
+#endif
+
     // Create the application's event queue before registering the button
     // callback.  Button callbacks only enqueue events and return immediately.
     music_app_start();
@@ -56,4 +69,12 @@ void app_main(void)
         ESP_LOGE(TAG, "按键初始化失败，无法操作播放器: %s",
                  esp_err_to_name(button_error));
     }
+#if CONFIG_MUSIC_ONLINE_P0
+    // Menu and buttons are already available; missing credentials do not stop
+    // local playback. NVS and driver initialization are not UI operations.
+    const esp_err_t network_error = music_network_start_saved();
+    if (network_error != ESP_OK) {
+        ESP_LOGW(TAG, "Network profile/start unavailable: %s", esp_err_to_name(network_error));
+    }
+#endif
 }

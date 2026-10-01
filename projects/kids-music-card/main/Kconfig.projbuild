@@ -1,0 +1,48 @@
+menu "Children's music player"
+
+config MUSIC_ONLINE_P0
+    bool "Experimental P0 HTTPS test entry"
+    default n
+    depends on ESP_WIFI_ENABLED && !APP_NO_BLOBS
+    depends on ESP_HTTP_CLIENT_ENABLE_HTTPS && MBEDTLS_CERTIFICATE_BUNDLE
+    depends on LOG_DYNAMIC_LEVEL_CONTROL && !LOG_TAG_LEVEL_IMPL_NONE
+    depends on LOG_MAXIMUM_LEVEL <= 3
+    help
+        Adds an ASCII HTTPS (P0) menu entry using a private NVS profile.
+        Wi-Fi, HTTPS, certificate verification and the certificate bundle
+        must be enabled explicitly. Default offline builds are unchanged.
+        This is not a paginated remote catalog or offline-download feature.
+        Maximum compiled logging must be INFO or below because the IDF
+        HTTP_CLIENT DEBUG logs include credentials and request headers.
+        Runtime HTTP_CLIENT logging is also limited to WARN.
+
+choice MUSIC_ONLINE_BUFFER
+    prompt "P0 compressed audio buffer"
+    depends on MUSIC_ONLINE_P0
+    default MUSIC_ONLINE_BUFFER_16K
+
+config MUSIC_ONLINE_BUFFER_16K
+    bool "16 KiB"
+
+config MUSIC_ONLINE_BUFFER_32K
+    bool "32 KiB (measure TLS peak before use)"
+
+endchoice
+
+config MUSIC_ONLINE_BUFFER_BYTES
+    int
+    default 16384 if MUSIC_ONLINE_BUFFER_16K
+    default 32768 if MUSIC_ONLINE_BUFFER_32K
+    default 16384
+
+config MUSIC_ONLINE_START_BYTES
+    int "P0 starting buffer threshold (bytes)"
+    depends on MUSIC_ONLINE_P0
+    range 256 8192
+    default 4100
+    help
+        Separate from total capacity. About 4100 bytes cover one second at
+        the fixed 32 kbps format, including frame prefixes. Final values
+        require real-device weak-network and memory measurements.
+
+endmenu

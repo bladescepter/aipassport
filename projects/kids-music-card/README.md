@@ -16,7 +16,9 @@ The application in `main/music_app.c` owns the song menu, playback modes,
 five-second display blanking, and the playback page. `assets/music/catalog.json`
 and the generated `main/music_catalog.h` are the catalog boundary. The Opus
 decoder is isolated in `components/opus`; SPIFFS resources are streamed frame
-by frame by a dedicated audio task. NVS namespace `music` stores mode and
+by frame by a dedicated audio task through `music_file_source` and
+`music_frame_reader`. Short reads are accumulated; truncated headers/payloads
+are errors rather than normal EOF. NVS namespace `music` stores mode and
 volume (1–10); the default volume is 8 when no setting has been saved.
 
 The playback-page OK long-press threshold is 1.5 seconds. A short OK press while
@@ -46,10 +48,20 @@ idf.py build
 Validation entry points:
 
 ```bash
-bash tools/validate.sh --static    # Python compilation and unit tests
+bash tools/validate.sh --static    # Python checks and host streaming-core C tests
 bash tools/validate.sh --firmware  # Pack resources and build (ESP-IDF required)
 bash tools/validate.sh             # Both
 ```
+
+Host tests compile the production source/frame/buffer and HTTP-policy modules
+using `cc` or `gcc`, without ESP-IDF; they explicitly skip if neither is
+available. They do not compile the ESP-IDF network adapters or full firmware.
+The opt-in `HTTPS (P0)` test-entry source is wired behind a disabled-by-default
+Kconfig option, but has not been firmware-built or device-validated. Default
+configuration remains offline; remote catalogs, downloads and phone
+provisioning are not implemented. See the
+[P0 development record](docs/P0-开发记录.md) for private NVS-profile requirements,
+buffer candidates, log safety and outstanding acceptance tests.
 
 Only `sdkconfig.defaults` is versioned; local `sdkconfig` and `build/` are
 ignored. Rebuild after moving the project instead of reusing old build caches.

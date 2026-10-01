@@ -16,10 +16,17 @@
 #include "freertos/task.h"
 #include "lvgl.h"
 #include "music_catalog.h"
+#include "music_file_source.h"
+#include "music_frame_reader.h"
 #include "music_font_18.h"
 #include "nvs.h"
 #include "opus.h"
 #include "esp_timer.h"
+#include "sdkconfig.h"
+#if CONFIG_MUSIC_ONLINE_P0
+#include "music_http_source.h"
+#include "music_online_profile.h"
+#endif
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -35,6 +42,7 @@ static const char *TAG = "music_app";
 #define MUSIC_BITS               16u
 #define OPUS_FRAME_SAMPLES       960       // 60 ms at 16 kHz, the decoder maximum
 #define OPUS_MAX_PACKET          1500      // larger than a normal 32 kbps music frame
+#define FRAME_TIMEOUT_MS         10000u   // bounded assembly; not a network retry policy
 #define AUTO_BLANK_US            (5LL * 1000LL * 1000LL)
 #define MENU_VISIBLE_ROWS        8
 #define VOLUME_MIN                1
@@ -119,6 +127,7 @@ static int s_menu_top;
 static int s_current_song = -1;
 static bool s_playing;
 static bool s_paused;
+static int s_play_error;
 static bool s_screen_awake = true;
 static int64_t s_ignore_ok_until_us;
 static bool s_fs_mounted;
@@ -160,6 +169,30 @@ static const char *const s_mode_names[MUSIC_MODE_COUNT] = {
     "随机播放",
     "单曲循环",
 };
+
+static bool is_online_song(int song)
+{
+#if CONFIG_MUSIC_ONLINE_P0
+    return song == (int)MUSIC_CATALOG_COUNT;
+#else
+    (void)song;
+    return false;
+#endif
+}
+
+static int song_count(void)
+{
+#if CONFIG_MUSIC_ONLINE_P0
+    return (int)MUSIC_CATALOG_COUNT + 1;
+#else
+    return (int)MUSIC_CATALOG_COUNT;
+#endif
+}
+
+static const char *song_title(int song)
+{
+    return is_online_song(song) ? "HTTPS (P0)" : MUSIC_CATALOG[song].title;
+}
 
 /* -------------------------------------------------------------------------- */
 /* Small cross-task event helpers                                             */
@@ -313,7 +346,10 @@ static void settings_worker(void *argument)
 /* -------------------------------------------------------------------------- */
 
 typedef struct {
-    FILE *file;
+    music_source_t source;
+    music_file_source_t file;
+    music_frame_reader_t frame_reader;
+    uint8_t packet[OPUS_MAX_PACKET];
     OpusDecoder *decoder;
     int song;
     uint32_t generation;
@@ -330,10 +366,8 @@ static void player_close(player_state_t *state)
         opus_decoder_destroy(state->decoder);
         state->decoder = NULL;
     }
-    if (state->file) {
-        fclose(state->file);
-        state->file = NULL;
-    }
+    music_source_cancel(&state->source);
+    music_source_close(&state->source);
     state->playing = false;
     state->paused = false;
     state->song = -1;
@@ -341,28 +375,57 @@ static void player_close(player_state_t *state)
 
 static bool player_open(player_state_t *state, const player_command_t *command)
 {
-    if (!state || !command || command->song < 0 ||
-        command->song >= (int)MUSIC_CATALOG_COUNT || !s_fs_mounted) {
+    if (!state || !command || command->song < 0 || command->song >= song_count()) {
         return false;
     }
-
-    char path[sizeof(MUSIC_FS_MOUNT) + 1 + 32];
-    const music_track_t *track = &MUSIC_CATALOG[command->song];
-    const int path_length = snprintf(path, sizeof(path), "%s/%s",
-                                     MUSIC_FS_MOUNT, track->path);
-    if (path_length < 0 || path_length >= (int)sizeof(path)) {
-        return false;
+    const char *title = song_title(command->song);
+#if CONFIG_MUSIC_ONLINE_P0
+    if (is_online_song(command->song)) {
+        music_online_profile_t profile;
+        esp_err_t error = music_online_profile_load(&profile);
+        if (error == ESP_OK) {
+            const music_http_source_config_t config = {
+                .origin = profile.origin,
+                .audio_path = profile.audio_path,
+                .username = profile.username,
+                .password = profile.password,
+                .expected_size = profile.size_bytes,
+                .buffer_bytes = CONFIG_MUSIC_ONLINE_BUFFER_BYTES,
+                .start_bytes = CONFIG_MUSIC_ONLINE_START_BYTES,
+            };
+            error = music_http_source_open(&state->source, &config);
+        }
+        music_online_profile_clear(&profile);
+        if (error != ESP_OK) {
+            ESP_LOGW(TAG, "P0 source/profile unavailable: %s", esp_err_to_name(error));
+            return false;
+        }
+    } else
+#endif
+    {
+        if (!s_fs_mounted) {
+            return false;
+        }
+        char path[sizeof(MUSIC_FS_MOUNT) + 1 + 32];
+        const int path_length = snprintf(path, sizeof(path), "%s/%s",
+                                         MUSIC_FS_MOUNT, MUSIC_CATALOG[command->song].path);
+        if (path_length < 0 || path_length >= (int)sizeof(path)) {
+            return false;
+        }
+        if (music_file_source_open(&state->source, &state->file, path) != MUSIC_SOURCE_OK) {
+            ESP_LOGE(TAG, "找不到歌曲资源: %s (%s)", title, path);
+            return false;
+        }
     }
-
-    FILE *file = fopen(path, "rb");
-    if (!file) {
-        ESP_LOGE(TAG, "找不到歌曲资源: %s (%s)", track->title, path);
+    if (music_frame_reader_init(&state->frame_reader, state->packet,
+                                sizeof(state->packet), FRAME_TIMEOUT_MS) != MUSIC_SOURCE_OK) {
+        music_source_close(&state->source);
         return false;
     }
 
     if (bsp_audio_set_format(MUSIC_SAMPLE_RATE, MUSIC_BITS, MUSIC_CHANNELS) != ESP_OK) {
-        ESP_LOGE(TAG, "音频格式初始化失败: %s", track->title);
-        fclose(file);
+        ESP_LOGE(TAG, "音频格式初始化失败: %s", title);
+        music_source_close(&state->source);
         return false;
     }
 
@@ -372,18 +435,17 @@ static bool player_open(player_state_t *state, const player_command_t *command)
                                                  &decoder_error);
     if (!decoder) {
         ESP_LOGE(TAG, "Opus 解码器创建失败: %d", decoder_error);
-        fclose(file);
+        music_source_close(&state->source);
         return false;
     }
 
     bsp_audio_set_volume(command->volume * 10u);
-    state->file = file;
     state->decoder = decoder;
     state->song = command->song;
     state->generation = command->generation;
     state->playing = true;
     state->paused = false;
-    ESP_LOGI(TAG, "开始播放: %s", track->title);
+    ESP_LOGI(TAG, "开始播放: %s", title);
     return true;
 }
 
@@ -408,11 +470,19 @@ static void player_handle_command(player_state_t *state,
     case PLAYER_CMD_PAUSE:
         if (state->playing) {
             state->paused = true;
+#if CONFIG_MUSIC_ONLINE_P0
+            music_http_source_set_paused(&state->source, true);
+#endif
         }
         break;
     case PLAYER_CMD_RESUME:
         if (state->playing) {
             state->paused = false;
+#if CONFIG_MUSIC_ONLINE_P0
+            music_http_source_set_paused(&state->source, false);
+#endif
+            music_frame_reader_resume(&state->frame_reader,
+                                      (uint64_t)(esp_timer_get_time() / 1000));
         }
         break;
     case PLAYER_CMD_SET_VOLUME:
@@ -429,9 +499,7 @@ static void player_worker(void *argument)
     player_state_t state = {0};
     state.song = -1;
 
-    uint8_t packet[OPUS_MAX_PACKET];
     int16_t pcm[OPUS_FRAME_SAMPLES];
-    uint8_t packet_length_bytes[2];
 
     for (;;) {
         if (!state.playing || state.paused) {
@@ -442,8 +510,8 @@ static void player_worker(void *argument)
             continue;
         }
 
-        // A frame is at most 60 ms.  Polling here keeps stop/pause/next-song
-        // latency bounded while all blocking I/O remains in this worker.
+        // Process commands between frames and partial-read attempts. Network
+        // backends must read buffered bytes here, never block on TLS/HTTP.
         player_command_t command;
         while (xQueueReceive(s_player_queue, &command, 0) == pdTRUE) {
             player_handle_command(&state, &command);
@@ -455,34 +523,47 @@ static void player_worker(void *argument)
             continue;
         }
 
-        if (fread(packet_length_bytes, 1, sizeof(packet_length_bytes), state.file) !=
-            sizeof(packet_length_bytes)) {
+        size_t packet_length = 0;
+        const music_source_result_t result = music_frame_reader_next(
+            &state.frame_reader, &state.source,
+            (uint64_t)(esp_timer_get_time() / 1000), &packet_length);
+        if (result == MUSIC_SOURCE_AGAIN) {
+            // Temporary starvation is neither EOF nor a reason to busy-spin.
+#if CONFIG_MUSIC_ONLINE_P0
+            if (is_online_song(state.song)) {
+                music_http_source_wait(&state.source);
+            } else
+#endif
+            {
+                vTaskDelay(pdMS_TO_TICKS(1));
+            }
+            continue;
+        }
+        if (result != MUSIC_SOURCE_OK) {
             const int song = state.song;
             const uint32_t generation = state.generation;
+#if CONFIG_MUSIC_ONLINE_P0
+            const music_http_failure_t http_failure = music_http_source_failure(&state.source);
+#endif
             player_close(&state);
-            post_player_event(APP_EVENT_PLAYER_FINISHED, song, generation, ESP_OK);
+            if (result == MUSIC_SOURCE_EOF) {
+                post_player_event(APP_EVENT_PLAYER_FINISHED, song, generation, ESP_OK);
+            } else {
+                int error = result == MUSIC_SOURCE_TIMEOUT ? ESP_ERR_TIMEOUT :
+                    (result == MUSIC_SOURCE_TRUNCATED || result == MUSIC_SOURCE_BAD_FRAME
+                     ? ESP_ERR_INVALID_SIZE : ESP_FAIL);
+#if CONFIG_MUSIC_ONLINE_P0
+                if (http_failure == MUSIC_HTTP_FAILURE_RESTART_REQUIRED) {
+                    error = ESP_ERR_INVALID_RESPONSE;
+                }
+#endif
+                ESP_LOGE(TAG, "歌曲 %d 的音频流读取失败: %d", song, (int)result);
+                post_player_event(APP_EVENT_PLAYER_ERROR, song, generation, error);
+            }
             continue;
         }
 
-        const uint16_t packet_length = (uint16_t)packet_length_bytes[0] |
-                                       ((uint16_t)packet_length_bytes[1] << 8);
-        if (packet_length == 0 || packet_length > sizeof(packet)) {
-            const int song = state.song;
-            const uint32_t generation = state.generation;
-            ESP_LOGE(TAG, "歌曲 %d 的 Opus 包长度非法: %u", song, packet_length);
-            player_close(&state);
-            post_player_event(APP_EVENT_PLAYER_ERROR, song, generation, ESP_ERR_INVALID_SIZE);
-            continue;
-        }
-        if (fread(packet, 1, packet_length, state.file) != packet_length) {
-            const int song = state.song;
-            const uint32_t generation = state.generation;
-            player_close(&state);
-            post_player_event(APP_EVENT_PLAYER_ERROR, song, generation, ESP_ERR_INVALID_SIZE);
-            continue;
-        }
-
-        const int samples = opus_decode(state.decoder, packet, packet_length,
+        const int samples = opus_decode(state.decoder, state.packet, (opus_int32)packet_length,
                                         pcm, OPUS_FRAME_SAMPLES, 0);
         if (samples < 0) {
             const int song = state.song;
@@ -603,7 +684,7 @@ static void destroy_screen_locked(void)
 
 static int menu_item_count(void)
 {
-    return (int)MUSIC_CATALOG_COUNT + 1; // last item is the mode selector
+    return song_count() + 1; // last item is the mode selector
 }
 
 static void menu_refresh_locked(void)
@@ -627,10 +708,9 @@ static void menu_refresh_locked(void)
         }
         lv_obj_clear_flag(s_menu_rows[row], LV_OBJ_FLAG_HIDDEN);
         const bool selected = item == s_menu_selected;
-        const char *text = item < (int)MUSIC_CATALOG_COUNT
-                         ? MUSIC_CATALOG[item].title : "";
+        const char *text = item < song_count() ? song_title(item) : "";
         char mode_text[48];
-        if (item == (int)MUSIC_CATALOG_COUNT) {
+        if (item == song_count()) {
             snprintf(mode_text, sizeof(mode_text), "播放模式：%s", s_mode_names[s_mode]);
             text = mode_text;
         }
@@ -688,19 +768,28 @@ static void build_mode_page_locked(void)
 static void playback_refresh_locked(void)
 {
     if (!s_play_title || !s_play_status || !s_play_volume || !s_play_mode ||
-        s_current_song < 0 || s_current_song >= (int)MUSIC_CATALOG_COUNT) {
+        s_current_song < 0 || s_current_song >= song_count()) {
         return;
     }
-    lv_label_set_text(s_play_title, MUSIC_CATALOG[s_current_song].title);
-    lv_label_set_text(s_play_status,
-                      !s_playing ? "音频未安装" : (s_paused ? "已暂停" : "播放中"));
+    lv_label_set_text(s_play_title, song_title(s_current_song));
+    const char *status = s_paused ? "已暂停" : "播放中";
+    if (!s_playing) {
+        status = is_online_song(s_current_song)
+            ? (s_play_error == ESP_ERR_INVALID_RESPONSE ? "Restart required" : "Error")
+            : "音频未安装";
+    }
+    lv_label_set_text(s_play_status, status);
 
     char volume[32];
     snprintf(volume, sizeof(volume), "音量 %u/10", (unsigned)s_volume);
     lv_label_set_text(s_play_volume, volume);
 
     char mode[32];
-    snprintf(mode, sizeof(mode), "模式：%s", s_mode_names[s_mode]);
+    if (is_online_song(s_current_song)) {
+        snprintf(mode, sizeof(mode), "P0 loop");
+    } else {
+        snprintf(mode, sizeof(mode), "模式：%s", s_mode_names[s_mode]);
+    }
     lv_label_set_text(s_play_mode, mode);
 }
 
@@ -759,10 +848,11 @@ static void blank_timer_start(void)
 
 static void start_song_locked(int song, bool wake_screen)
 {
-    if (song < 0 || song >= (int)MUSIC_CATALOG_COUNT) {
+    if (song < 0 || song >= song_count()) {
         return;
     }
 
+    s_play_error = ESP_OK;
     s_play_generation++;
     s_current_song = song;
     s_playing = true;
@@ -808,6 +898,11 @@ static void shuffle_for_song(int first_song)
 
 static int next_song_locked(void)
 {
+    // P0 tests one immutable URL, repeating only that URL for endurance tests.
+    // It is not part of the local shuffle or a pretend remote playlist.
+    if (is_online_song(s_current_song)) {
+        return s_current_song;
+    }
     if (s_mode == MUSIC_MODE_SINGLE) {
         return s_current_song;
     }
@@ -886,10 +981,10 @@ static void handle_button_locked(bsp_btn_t button, bsp_btn_ev_t event)
             s_menu_selected = (s_menu_selected + 1) % count;
             menu_refresh_locked();
         } else if (button == BSP_BTN_OK) {
-            if (s_menu_selected == (int)MUSIC_CATALOG_COUNT) {
+            if (s_menu_selected == song_count()) {
                 build_mode_page_locked();
             } else {
-                if (s_mode == MUSIC_MODE_RANDOM) {
+                if (s_mode == MUSIC_MODE_RANDOM && !is_online_song(s_menu_selected)) {
                     shuffle_for_song(s_menu_selected);
                 }
                 start_song_locked(s_menu_selected, true);
@@ -988,6 +1083,7 @@ static void handle_app_event_locked(const app_event_t *event)
         break;
     case APP_EVENT_PLAYER_ERROR:
         if (s_page == PAGE_PLAYBACK && event->generation == s_play_generation) {
+            s_play_error = event->error;
             s_playing = false;
             s_paused = false;
             blank_timer_cancel();

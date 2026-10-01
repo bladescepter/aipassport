@@ -14,12 +14,14 @@ cd projects/kids-music-card
 
 [在线播放与设备端离线收藏实施方案](docs/在线播放与离线收藏实施方案.md) 说明远程曲库分页浏览、HTTPS 流式播放、设备自主下载收藏、VPS 部署及分阶段验收。该文档为待实施方案，不代表当前固件已经支持联网。
 
+[P0 开发记录](docs/P0-开发记录.md) 记录统一音频源、帧读取、有界缓冲、HTTP 响应/恢复策略及默认关闭的 `HTTPS (P0)` 试验入口。Wi-Fi/HTTPS 适配器与入口源码已编写，尚未完成 ESP-IDF 构建或真机验收；默认配置仍为离线。远程曲库、下载收藏和手机配网尚未实现。
+
 ## 实现概要
 
 - `main/music_app.c`：歌曲菜单、播放模式、播放页、5 秒息屏和按键状态机。
 - `main/music_catalog.h` / `assets/music/catalog.json`：歌曲目录；菜单不硬编码歌曲数量。
 - `components/opus/`：ESP32-C3 固定点 Opus 解码器。
-- `assets/music/data/`：SPIFFS 音频资源；播放任务按帧读取，不把整首歌载入 RAM。
+- `assets/music/data/`：SPIFFS 音频资源；播放任务通过 `music_file_source` / `music_frame_reader` 按帧读取，不把整首歌载入 RAM；帧头或正文截断显式报错。
 - `components/bsp/`：官方 AI Passport 显示、ADC 电阻梯按键、ES8311 音频 BSP。
 - NVS 命名空间 `music` 保存播放模式和 1–10 音量；无历史设置时默认音量为 8。
 
@@ -61,10 +63,14 @@ idf.py build
 现有验证入口：
 
 ```bash
-bash tools/validate.sh --static    # Python 编译检查与单元测试
+bash tools/validate.sh --static    # Python 检查、资源测试及主机 C 流式核心测试
 bash tools/validate.sh --firmware  # 资源打包与固件构建，需先加载 ESP-IDF
 bash tools/validate.sh             # 两者都执行
 ```
+
+主机 C 测试需要 `cc` 或 `gcc`，不依赖 ESP-IDF；无主机编译器时会明确报告跳过。这些测试只编译音频源、帧读取、缓冲和 HTTP 策略核心，不编译网络任务、Wi-Fi/NVS 适配器、完整固件或硬件。
+
+P0 联网试验的 Kconfig 前置条件、16/32 KiB 候选、私有 NVS profile 键及日志安全约束见开发记录；不要把真实凭据写入源码或配置文件提交，也不要未经备份覆盖设备 NVS。
 
 版本控制仅保留 `sdkconfig.defaults`；本机 `sdkconfig` 和 `build/` 均忽略。迁移目录后必须重新构建，不复用含旧绝对路径的构建缓存。
 
