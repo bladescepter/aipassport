@@ -26,7 +26,6 @@ esp_err_t music_online_profile_load(music_online_profile_t *profile)
     }
     const struct { const char *key; char *value; size_t capacity; } fields[] = {
         {"origin", profile->origin, sizeof(profile->origin)},
-        {"audio_path", profile->audio_path, sizeof(profile->audio_path)},
         {"auth_user", profile->username, sizeof(profile->username)},
         {"auth_pass", profile->password, sizeof(profile->password)},
     };
@@ -37,12 +36,8 @@ esp_err_t music_online_profile_load(music_online_profile_t *profile)
             error = ESP_ERR_INVALID_ARG;
         }
     }
-    if (error == ESP_OK) {
-        error = nvs_get_u64(handle, "size_bytes", &profile->size_bytes);
-    }
-    if (error == ESP_OK && !profile->size_bytes) {
-        error = ESP_ERR_INVALID_ARG;
-    }
+    /* Track path/size now come from the validated, pinned remote catalog.
+     * Do not require the obsolete P0 single-track bootstrap keys. */
     nvs_close(handle);
     if (error != ESP_OK) {
         music_online_profile_clear(profile);

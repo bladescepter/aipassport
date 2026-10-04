@@ -1,0 +1,45 @@
+# DESTRUCTIVE: requires explicit authorization and verified external full-Flash backup.
+# Initial six-song device-v1 catalog, no indexed cache selections, home at boot.
+# First apply empty selection to remove legacy copies, then download first five.
+sleep 15
+send d
+send d
+send o
+sleep 25
+send s
+expect --timeout 10 TEST page=3.*loading=0
+send u
+send u
+send u
+send o
+sleep 1
+send s
+expect --timeout 10 TEST page=7
+send o
+expect --timeout 30 Cache apply ended: count=0 result=ESP_OK
+sleep 10
+send s
+expect --timeout 10 TEST page=3.*local=0
+send o
+send d
+send o
+send d
+send o
+send d
+send o
+send d
+send o
+send d
+send d
+send d
+send d
+send o
+sleep 1
+send s
+expect --timeout 10 TEST page=7
+send o
+expect --timeout 600 Cache apply ended: count=5 result=ESP_OK
+sleep 10
+send s
+expect --timeout 10 TEST page=3.*local=5
+exit

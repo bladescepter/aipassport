@@ -1,0 +1,33 @@
+# Test-console only; never type credentials into monitor scripts/logs.
+sleep 2
+send s
+expect --timeout 5 TEST page=0
+send dddo
+send do
+send ddo
+sleep 8
+send s
+expect --timeout 5 TEST page=9
+expect --timeout 5 TEST network=0.*scan_count=[0-9]+
+send l
+sleep 0.7
+send dddo
+send dddo
+send s
+expect --timeout 5 TEST page=10
+send o
+send s
+expect --timeout 5 TEST page=11
+send uo
+send do
+send s
+expect --timeout 5 TEST page=11
+send o
+send uo
+send s
+expect --timeout 5 TEST page=10
+send l
+sleep 0.7
+send s
+expect --timeout 5 TEST page=0
+exit

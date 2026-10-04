@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "KidMusic v1 current (cross-field release/path equality also required)",
+  "type": "object",
+  "required": ["schema_version", "release_id", "manifest_path"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "release_id": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,47}$"},
+    "manifest_path": {"type": "string", "pattern": "^/v1/releases/[A-Za-z0-9_-]{1,47}/manifest\\.json$"}
+  }
+}

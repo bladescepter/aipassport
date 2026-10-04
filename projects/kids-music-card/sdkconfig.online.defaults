@@ -1,0 +1,26 @@
+# Online catalog, device cache and local phone setup. No private credentials.
+CONFIG_APP_NO_BLOBS=n
+CONFIG_ESP_WIFI_ENABLED=y
+CONFIG_ESP_HTTP_CLIENT_ENABLE_HTTPS=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+CONFIG_LOG_DYNAMIC_LEVEL_CONTROL=y
+CONFIG_LOG_TAG_LEVEL_IMPL_CACHE_AND_LINKED_LIST=y
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+CONFIG_LOG_MAXIMUM_EQUALS_DEFAULT=y
+CONFIG_MUSIC_ONLINE_P0=y
+CONFIG_MUSIC_ONLINE_BUFFER_4K=y
+CONFIG_MUSIC_ONLINE_START_BYTES=1600
+# Low-throughput no-PSRAM profile. RX count must cover the RX BA window.
+# These limits reduce peak pressure; they do not reserve TLS memory.
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=4
+CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=6
+CONFIG_ESP_WIFI_DYNAMIC_TX_BUFFER_NUM=4
+# Keep the 16 KiB TLS input buffer: Caddy/Go may send records that large, and a
+# smaller one fails with MBEDTLS_ERR_SSL_BAD_INPUT_DATA.
+# Reserve record buffers for the connection lifetime. Per-record allocation
+# failed during playback despite sufficient total free heap (fragmentation).
+CONFIG_MBEDTLS_DYNAMIC_BUFFER=n
+CONFIG_MBEDTLS_SSL_IN_CONTENT_LEN=16384
+CONFIG_MBEDTLS_SSL_OUT_CONTENT_LEN=2048
+# Try independent time services; TLS certificate time checks remain enabled.
+CONFIG_LWIP_SNTP_MAX_SERVERS=3

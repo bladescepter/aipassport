@@ -1,28 +1,35 @@
 menu "Children's music player"
 
 config MUSIC_ONLINE_P0
-    bool "Experimental P0 HTTPS test entry"
+    bool "HTTPS catalog, persistent cache and phone Wi-Fi setup"
     default n
     depends on ESP_WIFI_ENABLED && !APP_NO_BLOBS
     depends on ESP_HTTP_CLIENT_ENABLE_HTTPS && MBEDTLS_CERTIFICATE_BUNDLE
     depends on LOG_DYNAMIC_LEVEL_CONTROL && !LOG_TAG_LEVEL_IMPL_NONE
     depends on LOG_MAXIMUM_LEVEL <= 3
     help
-        Adds an ASCII HTTPS (P0) menu entry using a private NVS profile.
-        Wi-Fi, HTTPS, certificate verification and the certificate bundle
-        must be enabled explicitly. Default offline builds are unchanged.
-        This is not a paginated remote catalog or offline-download feature.
+        Enables the bounded versioned HTTPS catalog, persistent five-song
+        cache and local WPA2-protected phone setup portal. Credentials are
+        stored in private NVS, never in source or defaults. Four-section UI
+        and local playback are also available in offline builds.
+        This code still requires server interoperability and hardware acceptance.
         Maximum compiled logging must be INFO or below because the IDF
         HTTP_CLIENT DEBUG logs include credentials and request headers.
         Runtime HTTP_CLIENT logging is also limited to WARN.
 
 choice MUSIC_ONLINE_BUFFER
-    prompt "P0 compressed audio buffer"
+    prompt "Compressed audio buffer (streaming ring)"
     depends on MUSIC_ONLINE_P0
-    default MUSIC_ONLINE_BUFFER_16K
+    default MUSIC_ONLINE_BUFFER_8K
+
+config MUSIC_ONLINE_BUFFER_4K
+    bool "4 KiB (about one second)"
+
+config MUSIC_ONLINE_BUFFER_8K
+    bool "8 KiB (about two seconds)"
 
 config MUSIC_ONLINE_BUFFER_16K
-    bool "16 KiB"
+    bool "16 KiB (about four seconds)"
 
 config MUSIC_ONLINE_BUFFER_32K
     bool "32 KiB (measure TLS peak before use)"
@@ -31,18 +38,31 @@ endchoice
 
 config MUSIC_ONLINE_BUFFER_BYTES
     int
+    default 4096 if MUSIC_ONLINE_BUFFER_4K
+    default 8192 if MUSIC_ONLINE_BUFFER_8K
     default 16384 if MUSIC_ONLINE_BUFFER_16K
     default 32768 if MUSIC_ONLINE_BUFFER_32K
-    default 16384
+    default 8192
 
 config MUSIC_ONLINE_START_BYTES
-    int "P0 starting buffer threshold (bytes)"
+    int "Starting buffer threshold (bytes)"
     depends on MUSIC_ONLINE_P0
     range 256 8192
-    default 4100
+    default 2600
     help
-        Separate from total capacity. About 4100 bytes cover one second at
-        the fixed 32 kbps format, including frame prefixes. Final values
-        require real-device weak-network and memory measurements.
+        Filled before decoding starts, to absorb network jitter. About 2600
+        bytes cover 0.65 s at the fixed 32 kbps format including frame
+        prefixes. Measured on a real device: a 16 KiB ring left too little
+        contiguous internal RAM for the TLS handshake, so 8 KiB is the
+        default. Final values still need weak-network measurements.
+
+config MUSIC_TEST_CONSOLE
+    bool "Test-only USB key injection and state reports"
+    default n
+    help
+        For reproducible hardware regression only: u/d/o/l inject button
+        events and s reports state. No credential commands. Do not enable in
+        the normal device build. Physical ADC/audio/visual acceptance remains
+        separate from injected-event tests.
 
 endmenu

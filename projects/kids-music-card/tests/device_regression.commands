@@ -1,0 +1,76 @@
+# ESP-IDF monitor non-interactive commands, test-console build only.
+# Precondition: original volume=8, mode=random(1), six legacy files present.
+# Injected events exercise UI/audio code, not the physical ADC or audible quality.
+sleep 2
+send s
+expect --timeout 5 TEST page=0 selected=0 volume=8 mode=1
+send do
+sleep 0.3
+send s
+expect --timeout 5 TEST page=1
+send do
+sleep 1
+send s
+expect --timeout 5 TEST page=10.*volume=8.*song=0 playing=1 paused=0
+send d
+sleep 1
+send s
+expect --timeout 5 TEST page=10.*volume=8.*playing=1 paused=0
+send o
+sleep 0.3
+send s
+expect --timeout 5 TEST page=10.*paused=1
+send d
+sleep 1
+send s
+expect --timeout 5 TEST page=10.*paused=1
+send o
+sleep 6
+send s
+expect --timeout 5 TEST page=10.*playing=1 paused=0.*awake=0
+send o
+sleep 0.3
+send s
+expect --timeout 5 TEST page=10.*paused=1.*awake=0
+send l
+sleep 0.7
+send s
+expect --timeout 5 TEST page=10.*paused=1.*awake=1
+send l
+sleep 0.7
+send dddo
+sleep 0.3
+send o
+send uo
+sleep 0.5
+send s
+expect --timeout 5 TEST page=4.*volume=9 mode=1
+send o
+send do
+sleep 0.5
+send s
+expect --timeout 5 TEST page=4.*volume=8 mode=1
+send do
+send ddo
+sleep 5
+send s
+expect --timeout 5 TEST page=6
+send ddddo
+sleep 2
+send l
+sleep 0.7
+send o
+sleep 2
+send s
+expect --timeout 5 TEST page=2.*loading=0
+send l
+sleep 0.7
+send ddo
+sleep 2
+send s
+expect --timeout 5 TEST page=3.*loading=0
+send l
+sleep 1
+send s
+expect --timeout 5 TEST page=0.*volume=8 mode=1
+exit

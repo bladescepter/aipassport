@@ -4,7 +4,8 @@
 set(music_online_sources "")
 if(CONFIG_MUSIC_ONLINE_P0)
     list(APPEND music_online_sources
-        "music_http_source.c" "music_network.c" "music_online_profile.c")
+        "music_http_source.c" "music_network.c" "music_online_profile.c"
+        "music_catalog_protocol.c")
 endif()
 
 idf_component_register(
@@ -15,10 +16,12 @@ idf_component_register(
          "music_frame_reader.c"
          "music_stream_buffer.c"
          "music_http_protocol.c"
+         "music_policy.c"
+         "music_library.c"
          ${music_online_sources}
     INCLUDE_DIRS "." "../assets/fonts"
     REQUIRES bsp esp_hw_support esp_timer lvgl nvs_flash opus spiffs
-    PRIV_REQUIRES esp_http_client esp_event esp_netif esp_wifi lwip mbedtls heap
+    PRIV_REQUIRES esp_http_client esp_http_server esp_event esp_netif esp_wifi lwip mbedtls heap json esp_rom
 )
 
 # Generated LVGL font for the fixed Chinese UI vocabulary and song titles.

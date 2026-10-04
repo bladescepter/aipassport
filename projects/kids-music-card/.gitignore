@@ -2,6 +2,7 @@ build/
 sdkconfig
 sdkconfig.old
 managed_components/
+tools/font/node_modules/
 assets/music/musicfs.img
 # Audio is local-only until redistribution rights are confirmed, including
 # encoded files. Keep directory placeholders, not copyrighted song payloads.

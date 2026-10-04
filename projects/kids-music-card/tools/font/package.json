@@ -1,0 +1,9 @@
+{
+  "name": "kids-music-card-font-tools",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Locked LVGL UI font converter",
+  "dependencies": {
+    "lv_font_conv": "1.5.3"
+  }
+}

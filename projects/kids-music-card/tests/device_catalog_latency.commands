@@ -1,0 +1,25 @@
+# Read-only device-v1 catalog timing; valid NVS profile, test-console build.
+# Cold load = current + manifest + page on ONE TLS connection.
+sleep 15
+send o
+expect --timeout 35 Catalog ready: result=ESP_OK page=0 total=6 .*connections=1
+sleep 1
+send s
+expect --timeout 10 TEST page=2.*loading=0
+# Back to home and reopen within metadata TTL: page request only.
+send l
+sleep 1
+send o
+expect --timeout 20 Catalog ready: result=ESP_OK page=0 total=6 .*connections=1
+sleep 1
+send s
+expect --timeout 10 TEST page=2.*loading=0
+# Explicit Refresh (last-but-one menu item): fetch all three again.
+send u
+send u
+send o
+expect --timeout 35 Catalog ready: result=ESP_OK page=0 total=6 .*connections=1
+sleep 1
+send s
+expect --timeout 10 TEST page=2.*loading=0
+exit

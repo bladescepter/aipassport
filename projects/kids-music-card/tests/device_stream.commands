@@ -1,0 +1,31 @@
+# Online test firmware, existing valid NVS credentials; no filesystem writes.
+# Select first actual song (not Random); require real transfer and decoded EOF.
+sleep 15
+send o
+sleep 25
+send s
+expect --timeout 10 TEST page=2.*loading=0
+send d
+sleep 1
+send o
+expect --timeout 30 headers_checked
+expect --timeout 300 HTTP body complete: bytes=
+expect --timeout 15 Playback completed: song=16
+sleep 15
+send s
+expect --timeout 10 TEST page=13.*playing=1
+send o
+sleep 2
+send s
+expect --timeout 10 TEST page=13.*paused=1
+send o
+sleep 3
+send s
+expect --timeout 10 TEST page=13.*playing=1 paused=0
+send l
+sleep 2
+send l
+sleep 5
+send s
+expect --timeout 10 TEST page=2.*playing=0
+exit

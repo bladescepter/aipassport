@@ -1,69 +1,79 @@
-# AI Passport Children's Music Player
+# AI Passport Kids Music Player
 
-An offline three-button music player for the FoloToy AI Passport.
+ESP32-C3, 8 MB Flash, no PSRAM; ESP-IDF 5.5.3. Run all commands in
+`projects/kids-music-card/`. See [中文说明](README.zh_CN.md) for current behavior.
 
-This standalone ESP-IDF project lives in `projects/kids-music-card/`. Run all
-commands below from that directory; from the repository root:
+## Current firmware
+
+The home screen has exactly four entries: online playback, local playback,
+cache songs, and system settings. Both playback lists pin random playback first.
+The playback page uses Up/Down for previous/next, not volume. Volume 1–10,
+Wi-Fi setup, and sequential/random/single-repeat mode live in settings.
+
+Short OK pauses/resumes. After five seconds the display blanks without stopping
+audio. While blank, short OK does not wake the screen; long OK wakes without
+stopping. While lit, long OK stops and returns to the list (1.5 s threshold).
+Buttons enqueue events; audio, filesystem, NVS and network waits run off the UI.
+
+Network firmware implements bounded catalog pagination, HTTPS frame streaming,
+phone provisioning via a temporary password-protected AP, and persistent
+user-selected caching capped at five tracks. The default origin is
+`https://kidmusic.xiyuan.wiki`. See the [device API](docs/曲库API-v1.md), including
+machine-readable schemas under `docs/api-v1/`.
+
+**Implementation is not end-to-end acceptance.** Offline/online builds and 42
+host tests passed, and an earlier test build completed an injected-event
+regression on the actual board. Physical button/display/audio checks and real
+HTTPS/cache/power-loss tests remain pending. See [validation status](docs/设备端-v1-交付与验证.md).
+
+The existing six built-in files are preserved. They currently exceed the
+conservative new-write watermark, so adding downloaded files needs an explicitly
+approved, backed-up migration. The five-track count cap does not guarantee that
+five arbitrary tracks fit; no automatic deletion or eviction occurs.
+
+## Build
 
 ```bash
 cd projects/kids-music-card
-```
-
-The [requirements draft](docs/需求文档.md) is historical and differs from the
-current implementation in button behavior, default volume, and song count.
-
-The application in `main/music_app.c` owns the song menu, playback modes,
-five-second display blanking, and the playback page. `assets/music/catalog.json`
-and the generated `main/music_catalog.h` are the catalog boundary. The Opus
-decoder is isolated in `components/opus`; SPIFFS resources are streamed frame
-by frame by a dedicated audio task through `music_file_source` and
-`music_frame_reader`. Short reads are accumulated; truncated headers/payloads
-are errors rather than normal EOF. NVS namespace `music` stores mode and
-volume (1–10); the default volume is 8 when no setting has been saved.
-
-The playback-page OK long-press threshold is 1.5 seconds. A short OK press while
-blank pauses/resumes without waking the display; a long press wakes and returns
-to playback without stopping the song when blank, while a long press on the lit
-playback page stops the song and returns to the song list.
-
-The requested source format is **Opus, 16 kHz, mono, 32 kbps CBR, 20 ms
-frames**. You may provide WAV/MP3/FLAC/OGG/M4A originals; `tools/encode_music.py`
-converts them to the length-prefixed raw Opus stream consumed by the firmware.
-Use `--only 01` or `--allow-missing` when adding songs in stages. See
-`assets/music/README.zh_CN.md` for the exact workflow.
-
-Original and encoded audio files are local-only and are not distributed in
-this repository. Supply audio you have the right to use before encoding and
-packing it. A build without audio produces an empty resource image; it is not
-a playable or hardware-validated release.
-
-Build with ESP-IDF 5.5.3:
-
-```bash
 source <esp-idf-5.5.3>/export.sh
-idf.py set-target esp32c3
-idf.py build
+bash tools/validate.sh --static
+
+idf.py -B build/device-online -D SDKCONFIG=build/device-online/sdkconfig \
+  -D 'SDKCONFIG_DEFAULTS=sdkconfig.defaults;sdkconfig.online.defaults' build
+
+# Offline build: only sdkconfig.defaults, using its own SDKCONFIG/build directory.
 ```
 
-Validation entry points:
+Host stream/HTTP tests need `cc`; catalog parser tests additionally need
+`IDF_PATH` for portable SDK cJSON sources and explicitly skip without it.
+Firmware builds do not prove actual audio, ADC button recognition or networking.
+
+After backup and partition/resource comparison, use **`app-flash`** for an
+application-only update. Do not casually use `idf.py flash`: it also rewrites the
+music filesystem, potentially destroying user caches. The optional USB test
+console is disabled in normal builds; its regression input is
+`tests/device_regression.commands`.
+
+## Resources and server handoff
+
+Audio is 16 kHz mono, 32 kbps CBR, 20 ms Opus packets, stored as repeated
+little-endian 16-bit length plus raw packet; ordinary Ogg/WAV is not supported.
+Use `tools/encode_music.py` and `tools/pack_music.py` for user-provided resources.
+Audio files, credentials, local sdkconfig, build products and downloaded
+components stay out of Git. No audio distribution rights are assumed.
+
+The Chinese font is a 306-codepoint Noto Sans CJK subset. New titles must pass
+`assets/fonts/supported_characters.json` coverage or display their ASCII IDs;
+`tools/build_font.py` is the pinned regeneration workflow.
 
 ```bash
-bash tools/validate.sh --static    # Python checks and host streaming-core C tests
-bash tools/validate.sh --firmware  # Pack resources and build (ESP-IDF required)
-bash tools/validate.sh             # Both
+python3 tools/publish_catalog.py --release r20261002 --output build/kidmusic-public-r20261002
 ```
 
-Host tests compile the production source/frame/buffer and HTTP-policy modules
-using `cc` or `gcc`, without ESP-IDF; they explicitly skip if neither is
-available. They do not compile the ESP-IDF network adapters or full firmware.
-The opt-in `HTTPS (P0)` test-entry source is wired behind a disabled-by-default
-Kconfig option, but has not been firmware-built or device-validated. Default
-configuration remains offline; remote catalogs, downloads and phone
-provisioning are not implemented. See the
-[P0 development record](docs/P0-开发记录.md) for private NVS-profile requirements,
-buffer candidates, log safety and outstanding acceptance tests.
+This creates a new local static catalog/audio tree, validates framing/hash/font
+coverage, and does not deploy or modify server configuration. Read the API
+contract before publishing, and confirm rights to distribute the audio.
 
-Only `sdkconfig.defaults` is versioned; local `sdkconfig` and `build/` are
-ignored. Rebuild after moving the project instead of reusing old build caches.
-Real-device acceptance must still cover CJK glyphs, ADC buttons, audio quality
-and speed, pause/resume, playback modes, and uninterrupted blank-screen audio.
+Historical P0 reports and `docs/需求文档.md` are retained but do not describe the
+new home screen. Current deployment plans are not statements that a VPS was
+changed.

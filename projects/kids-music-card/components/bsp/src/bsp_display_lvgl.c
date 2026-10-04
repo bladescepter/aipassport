@@ -9,7 +9,10 @@
 
 static const char *TAG = "bsp_lvgl";
 
-#define BSP_LVGL_DRAW_BUFFER_LINES 40
+/* Single DMA strip: 240 * 10 * 2 = 4800 bytes. Keep headroom for the
+ * connection-lifetime TLS record buffers on this no-PSRAM device. Smaller
+ * strips increase flush count, not resolution, font size or color depth. */
+#define BSP_LVGL_DRAW_BUFFER_LINES 10
 
 static lv_display_t *s_disp;
 static bool s_port_initialized;

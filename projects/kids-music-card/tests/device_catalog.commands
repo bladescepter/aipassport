@@ -1,0 +1,12 @@
+# Test-console build only: enter 在线播放 and let the device fetch the real catalog.
+# No credentials appear here; the device reads them from its own NVS.
+sleep 3
+send s
+expect --timeout 5 TEST page=0
+send o
+sleep 10
+send s
+expect --timeout 10 TEST page=2
+send s
+expect --timeout 10 TEST network=
+exit

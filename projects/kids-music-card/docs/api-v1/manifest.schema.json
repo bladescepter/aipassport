@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "KidMusic v1 manifest (total_pages = ceil(total_tracks / 20) also required)",
+  "type": "object",
+  "required": ["schema_version", "release_id", "total_tracks", "page_size", "total_pages", "audio_format"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "release_id": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,47}$"},
+    "total_tracks": {"type": "integer", "minimum": 0, "maximum": 1000},
+    "page_size": {"const": 20},
+    "total_pages": {"type": "integer", "minimum": 0, "maximum": 50},
+    "audio_format": {
+      "type": "object",
+      "required": ["codec", "container", "sample_rate", "channels", "bitrate", "frame_ms"],
+      "properties": {
+        "codec": {"const": "opus"},
+        "container": {"const": "length-prefixed-le16"},
+        "sample_rate": {"const": 16000},
+        "channels": {"const": 1},
+        "bitrate": {"const": 32000},
+        "frame_ms": {"const": 20}
+      }
+    }
+  }
+}

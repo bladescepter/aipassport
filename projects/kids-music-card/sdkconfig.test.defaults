@@ -1,0 +1,3 @@
+# Add after sdkconfig.online.defaults only for injected-event hardware tests.
+# Normal firmware leaves this disabled.
+CONFIG_MUSIC_TEST_CONSOLE=y

@@ -1,0 +1,32 @@
+# DESTRUCTIVE replacement test: explicit approval + backup required.
+# Precondition: first five device-v1 tracks cached. Replace second with sixth.
+sleep 15
+send d
+send d
+send o
+sleep 25
+send s
+expect --timeout 10 TEST page=3.*local=5
+send d
+send o
+send d
+send d
+send d
+send d
+send o
+send d
+send d
+send d
+send o
+sleep 1
+send s
+expect --timeout 10 TEST page=7
+send o
+expect --timeout 60 Cache retained: count=4
+expect --timeout 30 Cache removed:
+expect --timeout 300 Cache committed: count=5
+expect --timeout 10 Cache apply ended: count=5 result=ESP_OK
+sleep 10
+send s
+expect --timeout 10 TEST page=3.*local=5
+exit

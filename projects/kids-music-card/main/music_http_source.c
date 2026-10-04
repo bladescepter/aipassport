@@ -19,6 +19,10 @@
 #include <string.h>
 
 #define HTTP_CHUNK_BYTES 512u
+/* Connecting needs room for a TLS handshake, especially on a slow link; body
+ * reads must stay short so pause/stop stay responsive. The timeout is lowered
+ * again after the headers are in. */
+#define HTTP_CONNECT_TIMEOUT_MS 5000
 #define HTTP_IO_TIMEOUT_MS 1000
 #define HTTP_USER_MAX 64u
 #define HTTP_PASSWORD_MAX 128u
@@ -54,6 +58,10 @@ static uint64_t now_ms(void)
 
 static void log_resources(const char *stage)
 {
+#if CONFIG_MUSIC_TEST_CONSOLE
+    /* Diagnostic checkpoints only; never run a full heap walk in UI callbacks. */
+    if (!heap_caps_check_integrity_all(true)) abort();
+#endif
     const uint32_t capabilities = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
     // Minimum is since boot, not an isolated TLS-only peak. Values must be
     // compared with the offline baseline; no audio-buffer-size guarantee here.
@@ -175,7 +183,7 @@ static esp_http_client_handle_t client_open(http_source_t *context, uint64_t off
         .skip_cert_common_name_check = false,
         .disable_auto_redirect = true,
         .max_authorization_retries = -1,
-        .timeout_ms = HTTP_IO_TIMEOUT_MS,
+        .timeout_ms = HTTP_CONNECT_TIMEOUT_MS,
         .buffer_size = HTTP_CHUNK_BYTES,
         .buffer_size_tx = 1024,
         .event_handler = http_event,
@@ -325,6 +333,7 @@ static void http_worker(void *argument)
         if (esp_http_client_is_chunked_response(client)) {
             context->headers.invalid = true;
         }
+        (void)esp_http_client_set_timeout_ms(client, HTTP_IO_TIMEOUT_MS);
         const int status = esp_http_client_get_status_code(client);
         const music_http_action_t action = music_http_validate_response(
             status, &context->headers, offset, context->expected_size);
@@ -361,6 +370,7 @@ static void http_worker(void *argument)
             }
             const int received = esp_http_client_read(client, (char *)chunk, (int)requested);
             if (received <= 0) {
+                log_resources("read_failed");
                 goto retry; /* 0 before expected size is premature EOF, not success. */
             }
             if ((size_t)received > requested) {
@@ -394,6 +404,7 @@ static void http_worker(void *argument)
             failure = MUSIC_HTTP_FAILURE_PROTOCOL;
             goto done;
         }
+        ESP_LOGI(TAG, "HTTP body complete: bytes=%" PRIu64, offset);
         terminal = MUSIC_SOURCE_EOF;
         failure = MUSIC_HTTP_FAILURE_NONE;
         goto done;
@@ -457,6 +468,16 @@ esp_err_t music_http_source_service_init(void)
     return ESP_OK;
 }
 
+bool music_http_service_acquire(uint32_t timeout_ms)
+{
+    return s_tls_gate && xSemaphoreTake(s_tls_gate, pdMS_TO_TICKS(timeout_ms)) == pdTRUE;
+}
+
+void music_http_service_release(void)
+{
+    if (s_tls_gate) xSemaphoreGive(s_tls_gate);
+}
+
 esp_err_t music_http_source_open(music_source_t *source,
                                  const music_http_source_config_t *config)
 {
@@ -467,22 +488,30 @@ esp_err_t music_http_source_open(music_source_t *source,
         config->expected_size > INT64_MAX ||
         !credential_valid(config->username, HTTP_USER_MAX, true) ||
         !credential_valid(config->password, HTTP_PASSWORD_MAX, false)) {
+        ESP_LOGW(TAG, "Source config rejected: size=%llu",
+                 config ? (unsigned long long)config->expected_size : 0);
         return ESP_ERR_INVALID_ARG;
     }
     char url[MUSIC_HTTP_URL_MAX + 1];
     if (!music_http_build_url(config->origin, config->audio_path, url, sizeof(url))) {
+        ESP_LOGW(TAG, "Source URL rejected: path_len=%u", (unsigned)strlen(config->audio_path));
         return ESP_ERR_INVALID_ARG;
     }
-    const size_t capacity = config->buffer_bytes ? config->buffer_bytes : 16384;
-    const size_t threshold = config->start_bytes ? config->start_bytes : 4100;
-    if ((capacity != 16384 && capacity != 32768) || threshold > capacity) {
+    const size_t capacity = config->buffer_bytes ? config->buffer_bytes : 8192;
+    const size_t threshold = config->start_bytes ? config->start_bytes : 2600;
+    if (capacity < 4096 || capacity > 32768 || (capacity & (capacity - 1)) || threshold > capacity) {
+        ESP_LOGW(TAG, "Source buffer rejected: capacity=%u threshold=%u", (unsigned)capacity, (unsigned)threshold);
         return ESP_ERR_INVALID_ARG;
     }
     if (xSemaphoreTake(s_slots, 0) != pdTRUE) {
+        ESP_LOGW(TAG, "No free HTTP source slot");
         return ESP_ERR_NO_MEM;
     }
     http_source_t *context = calloc(1, sizeof(*context) + capacity);
     if (!context) {
+        log_resources("source_open_nomem");
+        ESP_LOGW(TAG, "Source allocation failed: %u bytes contiguous required",
+                 (unsigned)(sizeof(*context) + capacity));
         xSemaphoreGive(s_slots);
         return ESP_ERR_NO_MEM;
     }

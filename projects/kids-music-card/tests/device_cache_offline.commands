@@ -1,0 +1,18 @@
+# Run ONLY with sdkconfig.defaults + sdkconfig.test.defaults (Wi-Fi disabled).
+# Existing migrated five-song cache. No writes/removals or account changes.
+sleep 3
+send s
+expect --timeout 10 TEST page=0.*local=5
+send d
+send o
+sleep 2
+send s
+expect --timeout 10 TEST page=1
+send d
+send o
+expect --timeout 15 开始播放:
+expect --timeout 300 Playback completed: song=0
+sleep 2
+send s
+expect --timeout 10 TEST page=13.*playing=1.*local=5
+exit

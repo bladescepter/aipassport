@@ -27,6 +27,9 @@ typedef enum {
 /* Initialize once from app initialization. Caps live/retiring sources at two
  * and concurrent TLS clients at one. No credentials or connection here. */
 esp_err_t music_http_source_service_init(void);
+/* Metadata worker shares the single TLS session gate with audio/download sources. */
+bool music_http_service_acquire(uint32_t timeout_ms);
+void music_http_service_release(void);
 /* Open from the owning audio worker: validates and copies config, allocates a
  * bounded buffer, starts a producer, returns WITHOUT Wi-Fi/TLS/HTTP waits.
  * Source must be zero-initialized/closed. Its owning task must outlive it.
